@@ -19,9 +19,16 @@ Introduce hasta 12 letras (o pide vocal / consonante como en el programa) y obt�
 
 Las dos pruebas tienen modo **Jugar · 30 s**: ronda aleatoria, cuenta atrás y solución al terminar.
 
+### Comodidad de uso
+
+- **Teclados en pantalla**: números del concurso (1–10, 25, 50, 75, 100) y letras en QWERTY español con Ñ. En el móvil no salta el teclado del sistema (toca dos veces una casilla si quieres escribir otro número).
+- **Teclado físico**: escribe directamente, `Enter` resuelve, `Esc` limpia, `Retroceso` borra letras. También puedes pegar letras.
+- **Enlaces compartibles**: cada resultado actualiza la URL (`?n=75.50.2.3.8.7&o=812`, `?l=pantalones`) y el botón *Compartir* la envía.
+- Recuerda la última ronda, copia la solución con un toque y lleva la vista al resultado.
+
 ## Uso
 
-Abre `index.html` en el navegador (funciona con doble clic) o publícalo con GitHub Pages.
+Abre `index.html` en el navegador (funciona con doble clic). Está desplegado en Vercel como sitio estático (`vercel.json`, sin paso de build).
 
 ```bash
 npm install        # solo hace falta para tests o regenerar el diccionario

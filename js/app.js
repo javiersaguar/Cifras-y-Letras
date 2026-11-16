@@ -6,14 +6,61 @@
   const $$ = sel => Array.from(document.querySelectorAll(sel));
   const escapar = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const siguienteFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+  const tactil = window.matchMedia('(pointer: coarse)').matches;
+  let pestanaActual = 'cifras';
+
+  /* ======================= Utilidades ======================= */
+  let temporizadorToast = null;
+  function toast(texto) {
+    const t = $('#toast');
+    t.textContent = texto;
+    t.hidden = false;
+    clearTimeout(temporizadorToast);
+    temporizadorToast = setTimeout(() => { t.hidden = true; }, 2000);
+  }
+
+  async function copiar(texto, mensaje) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      toast(mensaje || 'Copiado');
+    } catch (e) {
+      toast('No se pudo copiar');
+    }
+  }
+
+  async function compartir(url, titulo) {
+    if (navigator.share && tactil) {
+      try { await navigator.share({ title: titulo, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    copiar(url, 'Enlace copiado');
+  }
+
+  const almacen = {
+    leer(clave) { try { return JSON.parse(localStorage.getItem(`cyl.${clave}`)); } catch (e) { return null; } },
+    guardar(clave, valor) { try { localStorage.setItem(`cyl.${clave}`, JSON.stringify(valor)); } catch (e) { /* sin almacenamiento */ } },
+  };
+
+  function mostrarResultado(el) {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // cierra el teclado del móvil
+    const arriba = el.getBoundingClientRect().top;
+    if (arriba > window.innerHeight * 0.55 || arriba < 0) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function urlCon(params, pestana) {
+    const u = new URL(location.href);
+    u.search = new URLSearchParams(params).toString();
+    u.hash = pestana;
+    return u.toString();
+  }
 
   /* ======================= Pestañas ======================= */
   function mostrarPestana(nombre) {
+    pestanaActual = nombre;
     $$('.pestana').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === nombre)));
     $('#panel-cifras').hidden = nombre !== 'cifras';
     $('#panel-letras').hidden = nombre !== 'letras';
-    if (location.hash !== `#${nombre}`) history.replaceState(null, '', `#${nombre}`);
-    if (nombre === 'letras') obtenerDiccionario(); // empieza a cargarlo en segundo plano
+    if (location.hash !== `#${nombre}`) history.replaceState(null, '', `${location.pathname}${location.search}#${nombre}`);
+    if (nombre === 'letras') obtenerDiccionario().catch(() => {}); // precarga en segundo plano
   }
   $$('.pestana').forEach(b => b.addEventListener('click', () => mostrarPestana(b.dataset.tab)));
 
@@ -41,59 +88,154 @@
         id = null;
         contenedor.hidden = true;
       },
+      activo: () => id !== null,
     };
   }
 
   /* ======================= CIFRAS ======================= */
   const NUM_CASILLAS = 6;
+  const PEQUENOS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const GRANDES = [25, 50, 75, 100];
   const inputObjetivo = $('#objetivo');
-  const contNumeros = $('#numeros');
   const avisoCifras = $('#avisoCifras');
   const resultadoCifras = $('#resultadoCifras');
   const cronoCifras = crearCrono($('#cronoCifras'));
   let grandes = 2;
+  let activa = 0;
+  let ultimoToque = { i: -1, t: 0 };
 
+  // Casillas
   for (let i = 0; i < NUM_CASILLAS; i++) {
     const inp = document.createElement('input');
     inp.className = 'numero';
     inp.type = 'text';
-    inp.inputMode = 'numeric';
+    inp.inputMode = tactil ? 'none' : 'numeric'; // en el móvil se usa el teclado en pantalla
     inp.maxLength = 3;
     inp.placeholder = '·';
     inp.autocomplete = 'off';
     inp.setAttribute('aria-label', `Número ${i + 1}`);
-    contNumeros.appendChild(inp);
+    $('#numeros').appendChild(inp);
   }
   const casillas = $$('.numero');
+
+  function marcarActiva(i) {
+    activa = Math.max(0, Math.min(NUM_CASILLAS - 1, i));
+    casillas.forEach((c, k) => c.classList.toggle('activa', k === activa));
+  }
+
+  casillas.forEach((c, i) => {
+    c.addEventListener('focus', () => marcarActiva(i));
+    c.addEventListener('pointerup', () => {
+      // Doble toque en el móvil: abre el teclado numérico para escribir cualquier número.
+      const ahora = Date.now();
+      if (tactil && ultimoToque.i === i && ahora - ultimoToque.t < 450) {
+        c.inputMode = 'numeric';
+        c.blur();
+        setTimeout(() => { c.focus(); c.select(); }, 30);
+      }
+      ultimoToque = { i, t: ahora };
+    });
+    c.addEventListener('blur', () => { if (tactil) c.inputMode = 'none'; });
+  });
 
   function soloDigitos(inp, max) {
     inp.addEventListener('input', () => {
       const limpio = inp.value.replace(/\D/g, '').slice(0, max);
       if (limpio !== inp.value) inp.value = limpio;
+      guardarCifras();
+      pintarTecladoNum();
     });
   }
   soloDigitos(inputObjetivo, 4);
   casillas.forEach(c => soloDigitos(c, 3));
-  [inputObjetivo, ...casillas].forEach(inp =>
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') resolverCifrasUI(); })
-  );
+
+  // Teclado de números en pantalla
+  const tecladoNum = $('#tecladoNum');
+  [...PEQUENOS, ...GRANDES].forEach(n => {
+    const b = document.createElement('button');
+    b.className = `tecla${n > 10 ? ' grande' : ''}`;
+    b.textContent = n;
+    b.dataset.n = n;
+    tecladoNum.appendChild(b);
+  });
+  const btnBorrarNum = document.createElement('button');
+  btnBorrarNum.className = 'tecla borrar';
+  btnBorrarNum.textContent = '⌫';
+  btnBorrarNum.setAttribute('aria-label', 'Borrar número');
+  tecladoNum.appendChild(btnBorrarNum);
+
+  tecladoNum.addEventListener('pointerdown', e => e.preventDefault()); // no robar el foco
+  tecladoNum.addEventListener('click', e => {
+    const tecla = e.target.closest('.tecla');
+    if (!tecla) return;
+    if (tecla === btnBorrarNum) {
+      if (!casillas[activa].value && activa > 0) marcarActiva(activa - 1);
+      casillas[activa].value = '';
+    } else {
+      casillas[activa].value = tecla.dataset.n;
+      // Salta a la siguiente casilla vacía (o a la siguiente, si están todas llenas).
+      let sig = -1;
+      for (let k = 1; k <= NUM_CASILLAS; k++) {
+        const idx = (activa + k) % NUM_CASILLAS;
+        if (!casillas[idx].value) { sig = idx; break; }
+      }
+      marcarActiva(sig === -1 ? Math.min(activa + 1, NUM_CASILLAS - 1) : sig);
+    }
+    guardarCifras();
+    pintarTecladoNum();
+  });
+
+  // Atenúa los números que ya se han usado tantas veces como hay en el concurso.
+  function pintarTecladoNum() {
+    const usados = {};
+    casillas.forEach(c => { if (c.value) usados[c.value] = (usados[c.value] || 0) + 1; });
+    $$('#tecladoNum .tecla[data-n]').forEach(t => {
+      const n = Number(t.dataset.n);
+      t.classList.toggle('agotada', (usados[n] || 0) >= (n > 10 ? 1 : 2));
+    });
+  }
 
   $$('#chipsGrandes .chip').forEach(chip => chip.addEventListener('click', () => {
     grandes = Number(chip.dataset.grandes);
     $$('#chipsGrandes .chip').forEach(c => c.classList.toggle('activo', c === chip));
+    almacen.guardar('grandes', grandes);
   }));
 
-  function ponerRonda() {
-    const { numeros, objetivo } = rondaAleatoria(grandes);
-    casillas.forEach((c, i) => { c.value = numeros[i]; });
-    inputObjetivo.value = objetivo;
+  function ponerCifras(numeros, objetivo) {
+    casillas.forEach((c, i) => { c.value = numeros[i] ?? ''; });
+    inputObjetivo.value = objetivo ?? '';
+    const vacia = casillas.findIndex(c => !c.value);
+    marcarActiva(vacia === -1 ? 0 : vacia);
+    pintarTecladoNum();
+    guardarCifras();
+  }
+
+  function guardarCifras() {
+    almacen.guardar('cifras', { numeros: casillas.map(c => c.value), objetivo: inputObjetivo.value });
+  }
+
+  function limpiarCifras() {
+    cronoCifras.parar();
+    ponerCifras([], '');
     resultadoCifras.hidden = true;
     avisoCifras.textContent = '';
   }
 
-  $('#btnRondaCifras').addEventListener('click', () => { cronoCifras.parar(); ponerRonda(); });
+  function nuevaRonda() {
+    const { numeros, objetivo } = rondaAleatoria(grandes);
+    ponerCifras(numeros, objetivo);
+    resultadoCifras.hidden = true;
+    avisoCifras.textContent = '';
+  }
+
+  $('#btnObjetivoAleatorio').addEventListener('click', () => {
+    inputObjetivo.value = 101 + Math.floor(Math.random() * 899);
+    guardarCifras();
+  });
+  $('#btnRondaCifras').addEventListener('click', () => { cronoCifras.parar(); nuevaRonda(); });
+  $('#btnLimpiarCifras').addEventListener('click', limpiarCifras);
   $('#btnJugarCifras').addEventListener('click', () => {
-    ponerRonda();
+    nuevaRonda();
     cronoCifras.iniciar(30, resolverCifrasUI);
   });
   $('#btnResolverCifras').addEventListener('click', resolverCifrasUI);
@@ -105,8 +247,8 @@
     const objetivo = parseInt(inputObjetivo.value, 10);
 
     if (!Number.isInteger(objetivo) || objetivo <= 0) {
-      avisoCifras.textContent = 'Escribe el número objetivo.';
-      inputObjetivo.focus();
+      avisoCifras.textContent = 'Escribe el número objetivo arriba (o pulsa 🎲).';
+      if (!tactil) inputObjetivo.focus();
       return;
     }
     if (numeros.length < 2) {
@@ -121,7 +263,10 @@
     await siguienteFrame();
 
     try {
-      pintarCifras(resolverCifras(numeros, objetivo));
+      const r = resolverCifras(numeros, objetivo);
+      pintarCifras(r);
+      history.replaceState(null, '', urlCon({ n: numeros.join('.'), o: objetivo }, 'cifras'));
+      mostrarResultado(resultadoCifras);
     } catch (e) {
       resultadoCifras.hidden = true;
       avisoCifras.textContent = e.message;
@@ -136,14 +281,16 @@
       : `<span class="veredicto-titulo aprox">Más cerca: ${r.valor}</span>`;
     const meta = r.exacto
       ? `${r.pasos.length} operaci${r.pasos.length === 1 ? 'ón' : 'ones'} · ${r.milisegundos} ms`
-      : `a ${r.diferencia} del ${r.objetivo} · no hay exacto · ${r.milisegundos} ms`;
+      : `a ${r.diferencia} del ${r.objetivo} · no hay exacto`;
 
-    let html = `<div class="veredicto">${titulo}<span class="veredicto-meta">${meta}</span></div>`;
+    let html = `<div class="veredicto"><div>${titulo}<span class="veredicto-meta">${meta}</span></div>
+      <button class="mini-btn" data-accion="compartir">Compartir</button></div>`;
 
     if (r.pasos.length === 0) {
       html += '<div class="vacio">El objetivo ya está entre tus números.</div>';
     } else {
-      html += `<div class="expresion">${escapar(r.expresion)} = <b>${r.valor}</b></div>`;
+      html += `<button class="expresion" data-accion="copiar" title="Copiar">
+        <span class="texto">${escapar(r.expresion)} = <b>${r.valor}</b></span><span class="copiar">Copiar</span></button>`;
       html += '<ol class="pasos">';
       r.pasos.forEach((p, k) => {
         const ultimo = k === r.pasos.length - 1;
@@ -164,15 +311,24 @@
 
     resultadoCifras.innerHTML = html;
     resultadoCifras.hidden = false;
+    resultadoCifras.dataset.expresion = r.expresion ? `${r.expresion} = ${r.valor}` : '';
   }
+
+  resultadoCifras.addEventListener('click', e => {
+    const accion = e.target.closest('[data-accion]');
+    if (!accion) return;
+    if (accion.dataset.accion === 'copiar') copiar(resultadoCifras.dataset.expresion, 'Solución copiada');
+    if (accion.dataset.accion === 'compartir') compartir(location.href, 'Cifras y Letras · Cifras');
+  });
 
   /* ======================= LETRAS ======================= */
   const MAX_LETRAS = 12;
-  const inputLetras = $('#letrasInput');
-  const contFichas = $('#fichas');
+  const OBJETIVO_LETRAS = 10;
+  const VOCALES = 'aeiou';
   const avisoLetras = $('#avisoLetras');
   const resultadoLetras = $('#resultadoLetras');
   const cronoLetras = crearCrono($('#cronoLetras'));
+  let letras = '';
   let promesaDiccionario = null;
 
   function obtenerDiccionario() {
@@ -183,83 +339,109 @@
         s.onload = () => setTimeout(() => {
           try { resolver(cargarDiccionario(window.DICCIONARIO_ES)); } catch (e) { rechazar(e); }
         }, 0);
-        s.onerror = () => { promesaDiccionario = null; rechazar(new Error('No se pudo cargar el diccionario.')); };
+        s.onerror = () => { promesaDiccionario = null; rechazar(new Error('No se pudo cargar el diccionario. Revisa la conexión.')); };
         document.head.appendChild(s);
       });
     }
     return promesaDiccionario;
   }
 
-  function letrasActuales() {
-    return normalizar(inputLetras.value).slice(0, MAX_LETRAS);
-  }
+  // Teclado de letras en pantalla (QWERTY español)
+  const tecladoLetras = $('#tecladoLetras');
+  const FILAS = ['qwertyuiop', 'asdfghjklñ', 'zxcvbnm'];
+  FILAS.forEach((fila, f) => {
+    if (f === 2) tecladoLetras.insertAdjacentHTML('beforeend', '<span class="hueco"></span>');
+    for (const c of fila) {
+      tecladoLetras.insertAdjacentHTML('beforeend',
+        `<button class="tecla${VOCALES.includes(c) ? ' vocal' : ''}" data-letra="${c}">${c}</button>`);
+    }
+  });
+  tecladoLetras.insertAdjacentHTML('beforeend', '<button class="tecla borrar ancha" data-letra="borrar" aria-label="Borrar letra">⌫</button>');
+
+  tecladoLetras.addEventListener('pointerdown', e => e.preventDefault());
+  tecladoLetras.addEventListener('click', e => {
+    const tecla = e.target.closest('.tecla');
+    if (!tecla) return;
+    if (tecla.dataset.letra === 'borrar') borrarLetra();
+    else anadirLetras(tecla.dataset.letra);
+  });
 
   function ponerLetras(texto) {
-    inputLetras.value = normalizar(texto).slice(0, MAX_LETRAS).toUpperCase();
-    pintarFichas();
+    const anterior = letras;
+    letras = normalizar(texto).slice(0, MAX_LETRAS);
+    // Solo se animan las fichas nuevas (las que no estaban antes en la misma posición).
+    const desde = letras.startsWith(anterior) ? anterior.length : 0;
+    pintarFichas(desde);
+    almacen.guardar('letras', letras);
   }
+  function anadirLetras(texto) {
+    if (letras.length >= MAX_LETRAS) { toast(`Máximo ${MAX_LETRAS} letras`); return; }
+    ponerLetras(letras + normalizar(texto));
+  }
+  function borrarLetra() { ponerLetras(letras.slice(0, -1)); }
 
-  function pintarFichas() {
-    const letras = letrasActuales();
-    const huecos = Math.max(10, letras.length);
+  function pintarFichas(animarDesde) {
+    const huecos = Math.min(MAX_LETRAS, Math.max(OBJETIVO_LETRAS, letras.length + 1));
     let html = '';
     for (let i = 0; i < huecos; i++) {
-      html += letras[i]
-        ? `<div class="ficha borrable" data-i="${i}" title="Quitar">${escapar(letras[i])}</div>`
-        : '<div class="ficha vacia"></div>';
+      if (letras[i]) {
+        const nueva = animarDesde != null && i >= animarDesde ? ' nueva' : '';
+        html += `<button class="ficha borrable${nueva}" data-i="${i}" aria-label="Quitar ${escapar(letras[i])}">${escapar(letras[i])}</button>`;
+      } else {
+        const clases = ['ficha', 'vacia'];
+        if (i === letras.length) clases.push('cursor');
+        if (i >= OBJETIVO_LETRAS) clases.push('extra');
+        html += `<div class="${clases.join(' ')}"></div>`;
+      }
     }
-    contFichas.innerHTML = html;
+    $('#fichas').innerHTML = html;
+
+    const v = [...letras].filter(c => VOCALES.includes(c)).length;
+    $('#contadorLetras').innerHTML = letras.length
+      ? `<strong>${letras.length}</strong>/${OBJETIVO_LETRAS} letras · ${v} vocal${v === 1 ? '' : 'es'}, ${letras.length - v} consonante${letras.length - v === 1 ? '' : 's'} · toca una ficha para quitarla`
+      : 'Escribe o toca las letras, o pide vocal / consonante';
   }
 
-  inputLetras.addEventListener('input', () => {
-    const limpio = letrasActuales().toUpperCase();
-    if (inputLetras.value !== limpio) inputLetras.value = limpio;
-    pintarFichas();
-  });
-  inputLetras.addEventListener('keydown', e => { if (e.key === 'Enter') resolverLetrasUI(); });
-  contFichas.addEventListener('click', e => {
+  $('#fichas').addEventListener('click', e => {
     const ficha = e.target.closest('.ficha.borrable');
     if (!ficha) return;
-    const letras = letrasActuales().split('');
-    letras.splice(Number(ficha.dataset.i), 1);
-    ponerLetras(letras.join(''));
+    const lista = letras.split('');
+    lista.splice(Number(ficha.dataset.i), 1);
+    ponerLetras(lista.join(''));
   });
 
-  function anadirLetra(tipo) {
-    const letras = letrasActuales();
-    if (letras.length >= MAX_LETRAS) return;
-    ponerLetras(letras + letraAleatoria(tipo));
-  }
-  $('#btnVocal').addEventListener('click', () => anadirLetra('vocal'));
-  $('#btnConsonante').addEventListener('click', () => anadirLetra('consonante'));
-  $('#btnLetrasAleatorias').addEventListener('click', () => {
-    cronoLetras.parar();
-    ponerLetras(letrasAleatorias(10));
-    resultadoLetras.hidden = true;
-  });
-  $('#btnBorrarLetras').addEventListener('click', () => {
+  function limpiarLetras() {
     cronoLetras.parar();
     ponerLetras('');
     resultadoLetras.hidden = true;
     avisoLetras.textContent = '';
-    inputLetras.focus();
+  }
+
+  $('#btnVocal').addEventListener('click', () => anadirLetras(letraAleatoria('vocal')));
+  $('#btnConsonante').addEventListener('click', () => anadirLetras(letraAleatoria('consonante')));
+  $('#btnLetrasAleatorias').addEventListener('click', () => {
+    cronoLetras.parar();
+    ponerLetras(letrasAleatorias(OBJETIVO_LETRAS));
+    resultadoLetras.hidden = true;
   });
+  $('#btnBorrarLetras').addEventListener('click', limpiarLetras);
   $('#btnJugarLetras').addEventListener('click', () => {
-    ponerLetras(letrasAleatorias(10));
+    ponerLetras(letrasAleatorias(OBJETIVO_LETRAS));
     resultadoLetras.hidden = true;
     avisoLetras.textContent = '';
     cronoLetras.iniciar(30, resolverLetrasUI);
   });
   $('#btnResolverLetras').addEventListener('click', resolverLetrasUI);
-  $('#soloLemas').addEventListener('change', () => { if (!resultadoLetras.hidden) resolverLetrasUI(); });
+  $('#soloLemas').addEventListener('change', () => {
+    almacen.guardar('soloLemas', $('#soloLemas').checked);
+    if (!resultadoLetras.hidden) resolverLetrasUI();
+  });
 
   async function resolverLetrasUI() {
     cronoLetras.parar();
     avisoLetras.textContent = '';
-    const letras = letrasActuales();
     if (letras.length < 3) {
       avisoLetras.textContent = 'Introduce al menos 3 letras.';
-      inputLetras.focus();
       return;
     }
 
@@ -271,8 +453,13 @@
 
     try {
       const dic = await obtenerDiccionario();
-      const r = resolverLetras(letras, dic, { soloLemas: $('#soloLemas').checked });
+      const soloLemas = $('#soloLemas').checked;
+      const r = resolverLetras(letras, dic, { soloLemas });
       pintarLetras(r);
+      const params = { l: letras };
+      if (soloLemas) params.f = '1';
+      history.replaceState(null, '', urlCon(params, 'letras'));
+      mostrarResultado(resultadoLetras);
     } catch (e) {
       resultadoLetras.hidden = true;
       avisoLetras.textContent = e.message;
@@ -288,9 +475,10 @@
     }
 
     const top = r.palabras.slice(0, 5);
-    let html = `<div class="veredicto">
+    let html = `<div class="veredicto"><div>
       <span class="veredicto-titulo exacto">${r.maxLongitud} letras</span>
-      <span class="veredicto-meta">${r.total.toLocaleString('es-ES')} palabras posibles · ${r.milisegundos} ms</span>
+      <span class="veredicto-meta">${r.total.toLocaleString('es-ES')} palabras posibles · ${r.milisegundos} ms</span></div>
+      <button class="mini-btn" data-accion="compartir">Compartir</button>
     </div><div class="palabras">`;
 
     top.forEach((p, k) => {
@@ -305,7 +493,7 @@
           ${p.lema ? '<span class="etiqueta-lema">forma de diccionario</span>' : ''}
         </div>
         <div class="palabra-lado"><strong>${p.longitud}</strong>letras<br>
-          <a href="https://dle.rae.es/${encodeURIComponent(p.palabra)}" target="_blank" rel="noopener">RAE ↗</a></div>
+          <a class="enlace-rae" href="https://dle.rae.es/${encodeURIComponent(p.palabra)}" target="_blank" rel="noopener">RAE ↗</a></div>
       </div>`;
     });
     html += '</div>';
@@ -329,7 +517,71 @@
     resultadoLetras.innerHTML = html;
   }
 
+  resultadoLetras.addEventListener('click', e => {
+    const accion = e.target.closest('[data-accion="compartir"]');
+    if (accion) compartir(location.href, 'Cifras y Letras · Letras');
+  });
+
+  /* ======================= Teclado físico ======================= */
+  function pulsarTeclaVisual(selector) {
+    const t = document.querySelector(selector);
+    if (!t) return;
+    t.classList.add('pulsada');
+    setTimeout(() => t.classList.remove('pulsada'), 120);
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const enCampoTexto = e.target.matches && e.target.matches('input[type="text"]');
+    if (e.key === 'Enter' && e.target.closest && e.target.closest('button, a, summary')) return; // ya lo gestiona el propio botón
+
+    if (pestanaActual === 'cifras') {
+      if (e.key === 'Enter') { e.preventDefault(); resolverCifrasUI(); }
+      else if (e.key === 'Escape') limpiarCifras();
+      return;
+    }
+
+    // Letras
+    if (enCampoTexto) return;
+    if (e.key === 'Enter') { e.preventDefault(); resolverLetrasUI(); }
+    else if (e.key === 'Escape') limpiarLetras();
+    else if (e.key === 'Backspace') { e.preventDefault(); borrarLetra(); pulsarTeclaVisual('[data-letra="borrar"]'); }
+    else if (e.key.length === 1) {
+      const c = normalizar(e.key);
+      if (c) { e.preventDefault(); anadirLetras(c); pulsarTeclaVisual(`[data-letra="${c}"]`); }
+    }
+  });
+
+  // Tras un clic con ratón, el botón suelta el foco para que Enter siga resolviendo.
+  document.addEventListener('click', e => {
+    const boton = e.target.closest && e.target.closest('button');
+    if (boton && e.detail > 0) boton.blur();
+  });
+
+  document.addEventListener('paste', e => {
+    if (pestanaActual !== 'letras') return;
+    const texto = normalizar((e.clipboardData || window.clipboardData).getData('text'));
+    if (texto) { e.preventDefault(); anadirLetras(texto); }
+  });
+
   /* ======================= Inicio ======================= */
-  pintarFichas();
-  mostrarPestana(location.hash === '#letras' ? 'letras' : 'cifras');
+  const params = new URLSearchParams(location.search);
+  const grandesGuardados = almacen.leer('grandes');
+  if (Number.isInteger(grandesGuardados)) $(`#chipsGrandes .chip[data-grandes="${grandesGuardados}"]`)?.click();
+  $('#soloLemas').checked = params.has('l') ? params.get('f') === '1' : !!almacen.leer('soloLemas');
+
+  if (params.has('n')) {
+    ponerCifras(params.get('n').split('.').map(Number).filter(n => n > 0).slice(0, NUM_CASILLAS), Number(params.get('o')) || '');
+  } else {
+    const c = almacen.leer('cifras');
+    if (c) ponerCifras(c.numeros || [], c.objetivo || '');
+    else ponerCifras([], '');
+  }
+
+  ponerLetras(params.get('l') || almacen.leer('letras') || '');
+
+  const inicial = location.hash === '#letras' || (params.has('l') && !params.has('n')) ? 'letras' : 'cifras';
+  mostrarPestana(inicial);
+  if (inicial === 'cifras' && params.has('n')) resolverCifrasUI();
+  if (inicial === 'letras' && params.has('l')) resolverLetrasUI();
 })();
