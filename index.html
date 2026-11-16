@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cifras y Letras</title>
+  <meta name="description" content="Resuelve la prueba de cifras y la de letras del concurso de La 2, directamente en el navegador.">
+  <meta name="theme-color" content="#0b1530">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="cabecera">
+    <h1 class="logo"><span class="logo-cifras">Cifras</span> <span class="logo-y">y</span> <span class="logo-letras">Letras</span></h1>
+    <nav class="pestanas" role="tablist">
+      <button class="pestana" role="tab" data-tab="cifras" aria-selected="true">Cifras</button>
+      <button class="pestana" role="tab" data-tab="letras" aria-selected="false">Letras</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===================== CIFRAS ===================== -->
+    <section id="panel-cifras" class="panel" role="tabpanel">
+      <div class="tablero">
+        <label class="etiqueta" for="objetivo">Objetivo</label>
+        <input id="objetivo" class="marcador" type="text" inputmode="numeric" maxlength="4" placeholder="000" autocomplete="off">
+
+        <div class="etiqueta">Números</div>
+        <div class="numeros" id="numeros"></div>
+
+        <div class="fila-controles">
+          <span class="etiqueta-sm">Grandes</span>
+          <div class="chips" id="chipsGrandes">
+            <button class="chip" data-grandes="0">0</button>
+            <button class="chip" data-grandes="1">1</button>
+            <button class="chip activo" data-grandes="2">2</button>
+            <button class="chip" data-grandes="3">3</button>
+            <button class="chip" data-grandes="4">4</button>
+          </div>
+        </div>
+
+        <div class="botones">
+          <button class="btn secundario" id="btnRondaCifras">Ronda aleatoria</button>
+          <button class="btn secundario" id="btnJugarCifras">Jugar · 30 s</button>
+          <button class="btn primario" id="btnResolverCifras">Resolver</button>
+        </div>
+        <div class="crono" id="cronoCifras" hidden><div class="crono-barra"></div><span class="crono-num"></span></div>
+        <p class="aviso" id="avisoCifras" role="alert"></p>
+      </div>
+
+      <div class="resultado" id="resultadoCifras" hidden></div>
+    </section>
+
+    <!-- ===================== LETRAS ===================== -->
+    <section id="panel-letras" class="panel" role="tabpanel" hidden>
+      <div class="tablero">
+        <label class="etiqueta" for="letrasInput">Letras</label>
+        <input id="letrasInput" class="entrada-letras" type="text" maxlength="12" placeholder="Escribe hasta 12 letras" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <div class="fichas" id="fichas"></div>
+
+        <div class="botones">
+          <button class="btn secundario" id="btnVocal">+ Vocal</button>
+          <button class="btn secundario" id="btnConsonante">+ Consonante</button>
+          <button class="btn secundario" id="btnLetrasAleatorias">Aleatorias</button>
+          <button class="btn secundario" id="btnBorrarLetras">Borrar</button>
+        </div>
+
+        <label class="interruptor">
+          <input type="checkbox" id="soloLemas">
+          <span class="interruptor-pista"></span>
+          <span>Solo formas de diccionario <small>(sin plurales ni verbos conjugados)</small></span>
+        </label>
+
+        <div class="botones">
+          <button class="btn secundario" id="btnJugarLetras">Jugar · 30 s</button>
+          <button class="btn primario" id="btnResolverLetras">Buscar palabras</button>
+        </div>
+        <div class="crono" id="cronoLetras" hidden><div class="crono-barra"></div><span class="crono-num"></span></div>
+        <p class="aviso" id="avisoLetras" role="alert"></p>
+      </div>
+
+      <div class="resultado" id="resultadoLetras" hidden></div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    Funciona sin conexión a ninguna API · Diccionario: <a href="https://github.com/words/an-array-of-spanish-words" target="_blank" rel="noopener">an-array-of-spanish-words</a> y <a href="https://github.com/wooorm/dictionaries" target="_blank" rel="noopener">dictionary-es</a> (LibreOffice)
+  </footer>
+
+  <script src="js/cifras-solver.js"></script>
+  <script src="js/letras-solver.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

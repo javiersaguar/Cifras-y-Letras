@@ -1,0 +1,16 @@
+{
+  "name": "cifras-y-letras",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Solver de Cifras y Letras (La 2) que funciona en el navegador, sin servidor ni API.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "build:dict": "node scripts/build-dict.js",
+    "start": "npx --yes serve ."
+  },
+  "devDependencies": {
+    "an-array-of-spanish-words": "2.0.0",
+    "dictionary-es": "4.0.0"
+  },
+  "license": "MIT"
+}
